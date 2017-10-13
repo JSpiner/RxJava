@@ -344,7 +344,6 @@ public abstract class Single<T> implements SingleSource<T> {
      *
      * });
      * </code></pre>
-     * <p>
      * <dl>
      *  <dt><b>Scheduler:</b></dt>
      *  <dd>{@code create} does not operate by default on a particular {@link Scheduler}.</dd>
@@ -579,6 +578,17 @@ public abstract class Single<T> implements SingleSource<T> {
      * Wraps a specific Publisher into a Single and signals its single element or error.
      * <p>If the source Publisher is empty, a NoSuchElementException is signalled. If
      * the source has more than one element, an IndexOutOfBoundsException is signalled.
+     * <p>
+     * The {@link Publisher} must follow the
+     * <a href="https://github.com/reactive-streams/reactive-streams-jvm#reactive-streams">Reactive-Streams specification</a>.
+     * Violating the specification may result in undefined behavior.
+     * <p>
+     * If possible, use {@link #create(SingleOnSubscribe)} to create a
+     * source-like {@code Single} instead.
+     * <p>
+     * Note that even though {@link Publisher} appears to be a functional interface, it
+     * is not recommended to implement it through a lambda as the specification requires
+     * state management that is not achievable with a stateless lambda.
      * <dl>
      * <dt><b>Backpressure:</b></dt>
      * <dd>The {@code publisher} is consumed in an unbounded fashion but will be cancelled
@@ -589,6 +599,7 @@ public abstract class Single<T> implements SingleSource<T> {
      * @param <T> the value type
      * @param publisher the source Publisher instance, not null
      * @return the new Single instance
+     * @see #create(SingleOnSubscribe)
      */
     @BackpressureSupport(BackpressureKind.UNBOUNDED_IN)
     @CheckReturnValue
@@ -602,7 +613,6 @@ public abstract class Single<T> implements SingleSource<T> {
      * Wraps a specific ObservableSource into a Single and signals its single element or error.
      * <p>If the ObservableSource is empty, a NoSuchElementException is signalled.
      * If the source has more than one element, an IndexOutOfBoundsException is signalled.
-     * <p>
      * <dl>
      *   <dt><b>Scheduler:</b></dt>
      *   <dd>{@code fromObservable} does not operate by default on a particular {@link Scheduler}.</dd>
@@ -695,7 +705,6 @@ public abstract class Single<T> implements SingleSource<T> {
      * emitted by the nested {@code Single}, without any transformation.
      * <p>
      * <img width="640" height="370" src="https://raw.github.com/wiki/ReactiveX/RxJava/images/rx-operators/Single.merge.oo.png" alt="">
-     * <p>
      * <dl>
      * <dt><b>Scheduler:</b></dt>
      * <dd>{@code merge} does not operate by default on a particular {@link Scheduler}.</dd>
@@ -2401,9 +2410,9 @@ public abstract class Single<T> implements SingleSource<T> {
     /**
      * Instructs a Single to pass control to another Single rather than invoking
      * {@link SingleObserver#onError(Throwable)} if it encounters an error.
-     * <p/>
+     * <p>
      * <img width="640" height="310" src="https://raw.github.com/wiki/ReactiveX/RxJava/images/rx-operators/onErrorResumeNext.png" alt="">
-     * <p/>
+     * <p>
      * By default, when a Single encounters an error that prevents it from emitting the expected item to
      * its {@link SingleObserver}, the Single invokes its SingleObserver's {@code onError} method, and then quits
      * without invoking any more of its SingleObserver's methods. The {@code onErrorResumeNext} method changes this
@@ -2413,7 +2422,7 @@ public abstract class Single<T> implements SingleSource<T> {
      * will invoke the SingleObserver's {@link SingleObserver#onSuccess onSuccess} method if it is able to do so. In such a case,
      * because no Single necessarily invokes {@code onError}, the SingleObserver may never know that an error
      * happened.
-     * <p/>
+     * <p>
      * You can use this to prevent errors from propagating or to supply fallback data should errors be
      * encountered.
      * <dl>
@@ -2435,9 +2444,9 @@ public abstract class Single<T> implements SingleSource<T> {
     /**
      * Instructs a Single to pass control to another Single rather than invoking
      * {@link SingleObserver#onError(Throwable)} if it encounters an error.
-     * <p/>
+     * <p>
      * <img width="640" height="310" src="https://raw.github.com/wiki/ReactiveX/RxJava/images/rx-operators/onErrorResumeNext.png" alt="">
-     * <p/>
+     * <p>
      * By default, when a Single encounters an error that prevents it from emitting the expected item to
      * its {@link SingleObserver}, the Single invokes its SingleObserver's {@code onError} method, and then quits
      * without invoking any more of its SingleObserver's methods. The {@code onErrorResumeNext} method changes this
@@ -2447,7 +2456,7 @@ public abstract class Single<T> implements SingleSource<T> {
      * will invoke the SingleObserver's {@link SingleObserver#onSuccess onSuccess} method if it is able to do so. In such a case,
      * because no Single necessarily invokes {@code onError}, the SingleObserver may never know that an error
      * happened.
-     * <p/>
+     * <p>
      * You can use this to prevent errors from propagating or to supply fallback data should errors be
      * encountered.
      * <dl>
@@ -2466,6 +2475,24 @@ public abstract class Single<T> implements SingleSource<T> {
             final Function<? super Throwable, ? extends SingleSource<? extends T>> resumeFunctionInCaseOfError) {
         ObjectHelper.requireNonNull(resumeFunctionInCaseOfError, "resumeFunctionInCaseOfError is null");
         return RxJavaPlugins.onAssembly(new SingleResumeNext<T>(this, resumeFunctionInCaseOfError));
+    }
+
+    /**
+     * Nulls out references to the upstream producer and downstream SingleObserver if
+     * the sequence is terminated or downstream calls dispose().
+     * <dl>
+     *  <dt><b>Scheduler:</b></dt>
+     *  <dd>{@code onTerminateDetach} does not operate by default on a particular {@link Scheduler}.</dd>
+     * </dl>
+     * @return a Single which nulls out references to the upstream producer and downstream SingleObserver if
+     * the sequence is terminated or downstream calls dispose()
+     * @since 2.1.5 - experimental
+     */
+    @Experimental
+    @CheckReturnValue
+    @SchedulerSupport(SchedulerSupport.NONE)
+    public final Single<T> onTerminateDetach() {
+        return RxJavaPlugins.onAssembly(new SingleDetach<T>(this));
     }
 
     /**
@@ -2774,11 +2801,11 @@ public abstract class Single<T> implements SingleSource<T> {
      * Single&lt;Integer&gt; source = Single.just(1);
      * CompositeDisposable composite = new CompositeDisposable();
      *
-     * class ResourceSingleObserver implements SingleObserver&lt;Integer&gt;, Disposable {
+     * DisposableSingleObserver&lt;Integer&gt; ds = new DisposableSingleObserver&lt;&gt;() {
      *     // ...
-     * }
+     * };
      *
-     * composite.add(source.subscribeWith(new ResourceSingleObserver()));
+     * composite.add(source.subscribeWith(ds));
      * </code></pre>
      * <dl>
      *  <dt><b>Scheduler:</b></dt>
